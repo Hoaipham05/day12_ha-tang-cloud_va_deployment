@@ -42,7 +42,8 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
 
 ### Exercise 2.1: Trả lời câu hỏi về Dockerfile basic
 1. Base image là gì?
-- Base image là `python:3.11` trong [02-docker/develop/Dockerfile](02-docker/develop/Dockerfile).
+- Theo bản mẫu ban đầu: `python:3.11`.
+- Theo bản chạy thực tế trong môi trường hiện tại: đã chuyển sang `alpine:3.19` và cài `python3`, `py3-pip` để tránh lỗi runtime `exec format error`.
 
 2. Working directory là gì?
 - Working directory là `/app` (khai báo bằng `WORKDIR /app`).
@@ -53,7 +54,7 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
 4. CMD và ENTRYPOINT khác nhau thế nào?
 - `CMD` là lệnh mặc định có thể override khi chạy container.
 - `ENTRYPOINT` thường dùng để cố định executable chính, khó bị thay thế hơn.
-- File basic hiện dùng `CMD ["python", "app.py"]`.
+- Bản chạy hiện tại dùng `CMD ["python3", "app.py"]`.
 
 ### Exercise 2.2: Build và run bản develop
 - Lệnh chuẩn (chạy từ root project):
@@ -61,20 +62,22 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
   - `docker run -p 8000:8000 my-agent:develop`
   - Test: `curl http://localhost:8000/health`
 
-- Trạng thái lần chạy hiện tại:
-  - Đã kiểm tra Docker CLI/Compose có cài.
-  - Build chưa thực hiện được vì Docker daemon chưa chạy (Docker Desktop báo không khởi động).
+- Kết quả chạy thực tế:
+  - Build develop: thành công.
+  - Chạy container develop: thành công (`agent-dev`).
+  - Test endpoint:
+    - `GET /health` trả về JSON `{"status":"ok","uptime_seconds":...,"container":true}`.
+    - `POST /ask?question=Hello Docker` trả về JSON có trường `answer`.
+  - Kích thước image develop (inspect): `40740043` bytes (xấp xỉ 38.85 MB).
 
 ### Exercise 2.3: Multi-stage build (production)
 - File tham chiếu: [02-docker/production/Dockerfile](02-docker/production/Dockerfile).
 
 - Stage 1 (`AS builder`):
-  - Dùng `python:3.11-slim`.
-  - Cài build tools (`gcc`, `libpq-dev`).
-  - Cài dependencies vào `/root/.local`.
+  - Bản chạy hiện tại dùng `alpine:3.19`, cài Python/pip và dependencies vào `/root/.local`.
 
 - Stage 2 (`AS runtime`):
-  - Dùng lại `python:3.11-slim` nhẹ.
+  - Dùng lại `alpine:3.19` nhẹ.
   - Copy package đã cài từ builder, copy code cần chạy.
   - Tạo non-root user `appuser`, chạy container không dùng root.
   - Có `HEALTHCHECK`.
@@ -86,7 +89,10 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
 - Lệnh so sánh size:
   - `docker build -f 02-docker/production/Dockerfile -t my-agent:advanced .`
   - `docker images | findstr my-agent`
-  - Kết quả số MB sẽ cập nhật sau khi Docker daemon hoạt động.
+  - Kết quả chạy thực tế:
+    - Build advanced: thành công.
+    - Kích thước image advanced (inspect): `31515028` bytes (xấp xỉ 30.06 MB).
+    - Advanced nhỏ hơn develop khoảng 8.79 MB (xấp xỉ giảm 22.6%).
 
 ### Exercise 2.4: Docker Compose stack
 - File tham chiếu: [02-docker/production/docker-compose.yml](02-docker/production/docker-compose.yml).
@@ -107,6 +113,40 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
   - `curl http://localhost/ask -X POST -H "Content-Type: application/json" -d "{\"question\":\"Explain microservices\"}"`
   - `docker compose -f 02-docker/production/docker-compose.yml down`
 
+- Trạng thái chạy thực tế:
+  - Compose đã tạo được network và volumes.
+  - Bị chặn khi pull `redis:7-alpine` do Docker Hub unauthenticated pull rate limit.
+  - Vì vậy chưa hoàn tất full stack `agent + redis + qdrant + nginx` trong phiên này.
+
 ### Ghi chú Part 2
-- Phần lý thuyết và phân tích Dockerfile/Compose đã hoàn tất.
-- Phần số liệu thực nghiệm (image size, output curl khi container chạy) cần chạy lại ngay khi Docker Desktop daemon đã bật.
+- Đã hoàn tất build/run/test thực tế cho image develop và advanced.
+- Đã có số liệu kích thước image từ `docker image inspect`.
+- Riêng phần compose full stack bị chặn bởi Docker Hub rate limit khi pull image public.
+
+## Part 3: Cloud Deployment
+
+### Exercise 3.1: Render deployment (lựa chọn chính)
+- Trạng thái chuẩn bị:
+  - Đã chạy local thành công trong thư mục `03-cloud-deployment/railway` để xác nhận app hoạt động.
+  - `GET /health` trả về trạng thái `ok`.
+  - `POST /ask` hoạt động khi gửi JSON body đúng format (`{"question": "..."}`).
+
+- Triển khai Render:
+  1. Push code lên GitHub.
+  2. Vào Render Dashboard, chọn New -> Blueprint.
+  3. Chọn repository và để Render đọc file `03-cloud-deployment/render/render.yaml`.
+  4. Thiết lập environment variables cần thiết trên Render.
+  5. Deploy và lấy public URL.
+
+### Exercise 3.2: Railway deployment (tham khảo)
+- Có sẵn cấu hình `railway.toml` trong project.
+- Có thể dùng Railway nếu cần phương án thay thế Render.
+
+### Exercise 3.3: Cloud Run (optional)
+- Đã có template `cloudbuild.yaml` và `service.yaml` trong thư mục `production-cloud-run`.
+- Bài này optional, có thể làm sau khi hoàn tất Render.
+
+### Kết luận Part 3
+- Kỹ thuật local của P3 đã pass (health + ask).
+- Hướng triển khai chính: Render qua dashboard (không phụ thuộc CLI).
+- Bước còn lại là lấy URL public sau deploy và điền vào `DEPLOYMENT.md`.
