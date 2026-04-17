@@ -13,31 +13,26 @@
 # Cài đặt tất cả dependencies
 # Image này KHÔNG được dùng để deploy
 # ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM alpine:3.19 AS builder
 
 WORKDIR /app
 
-# Cài build dependencies (cần cho một số packages như numpy)
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache python3 py3-pip
 
 # Copy và cài requirements
-# Dùng --user để install vào /root/.local (dễ copy sang stage 2)
 COPY 02-docker/production/requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir --user -r requirements.txt
 
 
 # ──────────────────────────────────────────────────────────
 # STAGE 2: Runtime
 # Chỉ copy những gì cần để CHẠY, không cần để BUILD
 # ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS runtime
+FROM alpine:3.19 AS runtime
 
 # Tạo non-root user — security best practice
 # Chạy với root trong container là bad practice
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN apk add --no-cache python3 && addgroup -S appuser && adduser -S appuser -G appuser
 
 WORKDIR /app
 
@@ -66,7 +61,7 @@ EXPOSE 8000
 
 # Health check — Docker sẽ tự restart nếu fail
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # Start command
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

@@ -4,8 +4,10 @@
 # ============================================================
 
 # Bước 1: Chọn base image
-# python:3.11 = full Python distribution (~1 GB)
-FROM python:3.11
+# Alpine base để tránh lỗi tương thích image trên môi trường hiện tại
+FROM alpine:3.19
+
+RUN apk add --no-cache python3 py3-pip
 
 # Bước 2: Đặt working directory trong container
 WORKDIR /app
@@ -14,7 +16,7 @@ WORKDIR /app
 COPY 02-docker/develop/requirements.txt .
 
 # Bước 4: Cài dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir --user -r requirements.txt
 
 # Bước 5: Copy code vào container
 COPY 02-docker/develop/app.py .
@@ -27,7 +29,7 @@ COPY utils/mock_llm.py utils/
 EXPOSE 8000
 
 # Bước 8: Command mặc định khi container start
-CMD ["python", "app.py"]
+CMD ["python3", "app.py"]
 
 # ============================================================
 # Để build và chạy:
