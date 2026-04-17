@@ -1,7 +1,7 @@
 # Deployment Information
 
 ## Public URL
-https://YOUR-RENDER-URL.onrender.com
+https://ai-agent-nilc.onrender.com
 
 ## Platform
 Render
@@ -14,21 +14,46 @@ Render
 
 ### Health Check
 ```bash
-curl https://YOUR-RENDER-URL.onrender.com/health
+curl https://ai-agent-nilc.onrender.com/health
 # Expected: {"status":"ok", ...}
+```
+
+Sample response:
+```json
+{"status":"ok","uptime_seconds":361.5,"platform":"Railway","timestamp":"2026-04-17T13:02:05.408781+00:00"}
 ```
 
 ### API Test
 ```bash
-curl -X POST https://YOUR-RENDER-URL.onrender.com/ask \
+curl -X POST https://ai-agent-nilc.onrender.com/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"Hello from Render"}'
 ```
 
+Sample response:
+```json
+{"question":"Hello from Render","answer":"Agent ... (mock response)","platform":"Railway"}
+```
+
 ## Environment Variables Set
-- PORT=8000
-- AGENT_API_KEY=YOUR_SECRET_KEY
-- LOG_LEVEL=INFO
+- ENVIRONMENT=production
+- PYTHON_VERSION=3.11.0
+- AGENT_API_KEY=(Render generate value)
+- OPENAI_API_KEY=(optional for this mock lab)
+
+## Actual Validation Results
+- `GET /health` on public URL: `200 OK`
+- `POST /ask` with JSON body: `200 OK`
+- Public service currently follows Part 3 cloud app contract (`question` in JSON body).
+
+PowerShell command used successfully:
+```powershell
+$body = @{ question = "Hello from Render" } | ConvertTo-Json
+Invoke-RestMethod -Uri "https://ai-agent-nilc.onrender.com/ask" -Method Post -ContentType "application/json" -Body $body
+```
+
+Note:
+- API authentication/rate-limit/cost-guard verification was executed in local production modules (Part 4/5) and documented in `MISSION_ANSWERS.md`.
 
 ## Render Setup Steps (Done)
 1. Push repository to GitHub

@@ -138,6 +138,13 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
   4. Thiết lập environment variables cần thiết trên Render.
   5. Deploy và lấy public URL.
 
+- Kết quả deploy thực tế:
+  - Deploy thành công trên Render (status Live).
+  - Public URL: `https://ai-agent-nilc.onrender.com`.
+  - Test cloud pass:
+    - `GET /health` trả về JSON trạng thái `ok`.
+    - `POST /ask` trả về JSON có `question`, `answer`, `platform`.
+
 ### Exercise 3.2: Railway deployment (tham khảo)
 - Có sẵn cấu hình `railway.toml` trong project.
 - Có thể dùng Railway nếu cần phương án thay thế Render.
@@ -149,4 +156,131 @@ Bản develop thể hiện các anti-pattern phổ biến kiểu "chạy trên m
 ### Kết luận Part 3
 - Kỹ thuật local của P3 đã pass (health + ask).
 - Hướng triển khai chính: Render qua dashboard (không phụ thuộc CLI).
-- Bước còn lại là lấy URL public sau deploy và điền vào `DEPLOYMENT.md`.
+- Đã có URL public và xác nhận endpoint hoạt động.
+
+## Part 4: API Security
+
+### Exercise 4.1: Authentication (JWT)
+- Module sử dụng: `04-api-gateway/production/auth.py`.
+- Cơ chế:
+  - `POST /auth/token` nhận username/password và trả JWT.
+  - `POST /ask` dùng `Depends(verify_token)` để bắt buộc Bearer token.
+
+- Kết quả test thực tế:
+  - Login thành công:
+    - Trả về `access_token`, `token_type=bearer`, `expires_in_minutes=60`.
+  - Gọi `/ask` với token hợp lệ:
+    - Trả về 200 và có `question`, `answer`, `usage`.
+  - Gọi `/ask` không có token:
+    - Trả về `401`.
+
+### Exercise 4.2: Rate Limiting
+- Module sử dụng: `04-api-gateway/production/rate_limiter.py`.
+- Chính sách:
+  - User thường: `10 req/60s`.
+  - Admin: `100 req/60s`.
+- Kết quả test thực tế:
+  - Gửi liên tiếp 12 request với user `student`.
+  - Kết quả: sau khi vượt ngưỡng nhận `429` với detail:
+    - `{"error":"Rate limit exceeded","limit":10,"window_seconds":60,...}`
+
+### Exercise 4.3: Usage Tracking
+- Endpoint kiểm tra: `GET /me/usage` (có token).
+- Kết quả thực tế sau 1 request:
+  - `requests: 1`
+  - `input_tokens: 6`
+  - `output_tokens: 30`
+  - `cost_usd: 1.9E-05`
+  - `budget_remaining_usd: 0.999981`
+
+### Exercise 4.4: Cost Guard Implementation
+- Module sử dụng: `04-api-gateway/production/cost_guard.py`.
+- Cách làm:
+  - Kiểm budget global và budget từng user trước khi gọi LLM (`check_budget`).
+  - Ghi usage sau khi gọi LLM (`record_usage`).
+  - Tính chi phí theo input/output tokens với đơn giá theo 1K tokens.
+- Mức bảo vệ hiện tại:
+  - User budget mặc định: `$1/day`.
+  - Global budget mặc định: `$10/day`.
+
+### Bug thực tế đã phát hiện và sửa
+- Khi test P4 đã phát hiện mọi request bị `500` do middleware dùng:
+  - `response.headers.pop("server", None)`.
+- Nguyên nhân: `MutableHeaders` của Starlette không hỗ trợ `.pop()`.
+- Đã sửa ở:
+  - `04-api-gateway/production/app.py`
+  - `06-lab-complete/app/main.py`
+- Cách sửa:
+  - Đổi sang:
+    - `if "server" in response.headers: del response.headers["server"]`
+
+## Part 5: Scaling & Reliability
+
+### Exercise 5.1: Stateless Session Design
+- Module sử dụng: `05-scaling-reliability/production/app.py`.
+- Thiết kế:
+  - Session lưu qua `session_id`.
+  - Có lớp lưu trữ Redis (`session:{id}`) + TTL.
+  - Nếu Redis không sẵn sàng thì fallback in-memory (chỉ để local demo).
+
+### Exercise 5.2: Health & Readiness
+- Endpoint:
+  - `GET /health` trả về status, instance_id, storage, uptime.
+  - `GET /ready` kiểm readiness (nếu dùng Redis thì check ping Redis).
+- Kết quả test local thực tế:
+  - `/health` trả `status: ok`.
+  - `/ready` trả `{"ready": true, "instance": "instance-c8c963"}`.
+
+### Exercise 5.3: Multi-turn Conversation + History
+- Test thực tế:
+  - Gọi `POST /chat` lần 1 để tạo session.
+  - Gọi `POST /chat` lần 2 với cùng `session_id`.
+  - Gọi `GET /chat/{session_id}/history`.
+- Kết quả:
+  - Session giữ nguyên giữa các request.
+  - History trả về đầy đủ cặp message `user/assistant`.
+
+### Exercise 5.4: Script kiểm thử kèm theo
+- Đã chạy script: `05-scaling-reliability/production/test_stateless.py`.
+- Kết quả thực tế:
+  - Hoàn tất 5 requests liên tiếp.
+  - Session history được lưu đầy đủ.
+  - Môi trường local hiện tại chạy 1 instance nên script báo:
+    - `Only 1 instance (scale up với: docker compose up --scale agent=3)`
+
+### Exercise 5.5: Reliability Notes
+- Điểm production-ready đã có trong code P5:
+  - Tách state ra khỏi process memory (ưu tiên Redis).
+  - Có health/readiness probes.
+  - Có `instance_id` để quan sát khi scale nhiều replicas.
+- Hạn chế môi trường hiện tại:
+  - Chưa scale nhiều instance local do phụ thuộc Docker Compose và image pull limit.
+
+## Part 6: Lab Complete (Integration)
+
+### Tổng hợp thành phần hoàn chỉnh
+- Thư mục tích hợp: `06-lab-complete/`.
+- Bao gồm:
+  - `app/main.py`, `app/config.py`
+  - `Dockerfile`, `docker-compose.yml`, `requirements.txt`
+  - `railway.toml`, `render.yaml`
+  - Script kiểm tra: `check_production_ready.py`
+
+### Các yêu cầu cốt lõi đã đáp ứng
+1. Config theo environment (12-factor)
+2. Authentication (API key/JWT theo từng phần)
+3. Rate limiting
+4. Cost guard
+5. Health + readiness
+6. Graceful startup/shutdown
+7. Stateless design với Redis path trong phần scaling
+8. Không hardcode secrets trong bản production
+
+### Trạng thái nộp bài hiện tại
+- `MISSION_ANSWERS.md`: đã hoàn tất Part 1 -> Part 6.
+- `DEPLOYMENT.md`: đã có public URL Render và lệnh test.
+- Source code các phần lab: đầy đủ trong repository.
+
+### Ghi chú cuối
+- Một số bước scale bằng Docker Compose bị ảnh hưởng bởi Docker Hub pull rate limit trong phiên làm việc.
+- Các phần chính (P1-P5) đều đã có chạy/test thực tế và có kết quả ghi vào file này.
