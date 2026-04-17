@@ -27,4 +27,5 @@ services:
   - type: redis
     name: agent-cache
     plan: free
+    ipAllowList: []
     maxmemoryPolicy: allkeys-lru
