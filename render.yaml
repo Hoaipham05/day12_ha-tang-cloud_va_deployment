@@ -1,0 +1,30 @@
+# Root blueprint for Render (fallback path)
+# Keep this file at repo root so Render can find it with Blueprint Path = render.yaml
+
+services:
+  - type: web
+    name: ai-agent
+    runtime: python
+    rootDir: 03-cloud-deployment/railway
+    region: singapore
+    plan: free
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AGENT_API_KEY
+        generateValue: true
+
+  - type: redis
+    name: agent-cache
+    plan: free
+    maxmemoryPolicy: allkeys-lru
